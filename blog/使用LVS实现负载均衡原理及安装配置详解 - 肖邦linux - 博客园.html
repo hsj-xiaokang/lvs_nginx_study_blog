@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<!-- saved from url=(0051)https://www.cnblogs.com/liwei0526vip/p/6370103.html -->
+<html lang="zh-cn"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园</title>
+<link type="text/css" rel="stylesheet" href="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/blog-common.css">
+<link id="MainCss" type="text/css" rel="stylesheet" href="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/bundle-sea.css">
+<link type="text/css" rel="stylesheet" href="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/233902.css">
+<link id="mobile-style" media="only screen and (max-width: 767px)" type="text/css" rel="stylesheet" href="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/bundle-sea-mobile.css">
+<link title="RSS" type="application/rss+xml" rel="alternate" href="http://www.cnblogs.com/liwei0526vip/rss">
+<link title="RSD" type="application/rsd+xml" rel="EditURI" href="http://www.cnblogs.com/liwei0526vip/rsd.xml">
+<link type="application/wlwmanifest+xml" rel="wlwmanifest" href="http://www.cnblogs.com/liwei0526vip/wlwmanifest.xml">
+<script async="" src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/analytics.js.下载"></script><script type="text/javascript" src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/encoder.js.下载"></script><script src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/jquery.js.下载" type="text/javascript"></script><style type="text/css" abt="234"></style>  
+<script type="text/javascript">var currentBlogApp = 'liwei0526vip', cb_enable_mathjax=false;var isLogined=false;</script>
+<script src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/blog-common.js.下载" type="text/javascript"></script>
+<script>//console.log('a')
+</script><script>doAdblock();
+function doAdblock(){
+    (function() {
+        function A() {}
+        A.prototype = {
+            rules: {
+                'pps_pps': {
+                    'find': /^http:\/\/www\.iqiyi\.com\/player\/cupid\/common\/pps_flvplay_s\.swf/,
+                    'replace': 'http://swf.adtchrome.com/pps_20140420.swf'
+                },
+                '17173_in':{
+                    'find':/http:\/\/f\.v\.17173cdn\.com\/(\d+\/)?flash\/PreloaderFile(Customer)?\.swf/,
+                    'replace':"http://swf.adtchrome.com/17173_in_20150522.swf"
+                },
+                '17173_out':{
+                    'find':/http:\/\/f\.v\.17173cdn\.com\/(\d+\/)?flash\/PreloaderFileFirstpage\.swf/,
+                    'replace':"http://swf.adtchrome.com/17173_out_20150522.swf"
+                },
+                '17173_live':{
+                    'find':/http:\/\/f\.v\.17173cdn\.com\/(\d+\/)?flash\/Player_stream(_firstpage)?\.swf/,
+                    'replace':"http://swf.adtchrome.com/17173_stream_20150522.swf"
+                },
+                '17173_live_out':{
+                    'find':/http:\/\/f\.v\.17173cdn\.com\/(\d+\/)?flash\/Player_stream_(custom)?Out\.swf/,
+                    'replace':"http://swf.adtchrome.com/17173.out.Live.swf"
+                }
+            },
+            _done: null,
+            get done() {
+                if(!this._done) {
+                    this._done = new Array();
+                }
+                return this._done;
+            },
+            addAnimations: function() {
+                var style = document.createElement('style');
+                style.type = 'text/css';
+                style.innerHTML = 'object,embed{\
+                -webkit-animation-duration:.001s;-webkit-animation-name:playerInserted;\
+                -ms-animation-duration:.001s;-ms-animation-name:playerInserted;\
+                -o-animation-duration:.001s;-o-animation-name:playerInserted;\
+                animation-duration:.001s;animation-name:playerInserted;}\
+                @-webkit-keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}\
+                @-ms-keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}\
+                @-o-keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}\
+                @keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}';
+                document.getElementsByTagName('head')[0].appendChild(style);
+            },
+            animationsHandler: function(e) {
+                if(e.animationName === 'playerInserted') {
+                    this.replace(e.target);
+                }
+            },
+            replace: function(elem) {
+                if (/http:\/\/v.youku.com\/v_show\/.*/.test(window.location.href)){
+                    var tag = document.getElementById("playerBox").getAttribute("player")
+                    if (tag == "adt"){
+                        console.log("adt adv")
+                        return;
+                    }
+                }
+                if(this.done.indexOf(elem) != -1) return;
+                this.done.push(elem);
+                var player = elem.data || elem.src;
+                if(!player) return;
+                var i, find, replace = false;
+                for(i in this.rules) {
+                    find = this.rules[i]['find'];
+                    if(find.test(player)) {
+                        replace = this.rules[i]['replace'];
+                        if('function' === typeof this.rules[i]['preHandle']) {
+                            this.rules[i]['preHandle'].bind(this, elem, find, replace, player)();
+                        }else{
+                            this.reallyReplace.bind(this, elem, find, replace)();
+                        }
+                        break;
+                    }
+                }
+            },
+            reallyReplace: function(elem, find, replace) {
+                elem.data && (elem.data = elem.data.replace(find, replace)) || elem.src && ((elem.src = elem.src.replace(find, replace)) && (elem.style.display = 'block'));
+                var b = elem.querySelector("param[name='movie']");
+                this.reloadPlugin(elem);
+            },
+            reloadPlugin: function(elem) {
+                var nextSibling = elem.nextSibling;
+                var parentNode = elem.parentNode;
+                parentNode.removeChild(elem);
+                var newElem = elem.cloneNode(true);
+                this.done.push(newElem);
+                if(nextSibling) {
+                    parentNode.insertBefore(newElem, nextSibling);
+                } else {
+                    parentNode.appendChild(newElem);
+                }
+            },
+            init: function() {
+                var handler = this.animationsHandler.bind(this);
+                document.body.addEventListener('webkitAnimationStart', handler, false);
+                document.body.addEventListener('msAnimationStart', handler, false);
+                document.body.addEventListener('oAnimationStart', handler, false);
+                document.body.addEventListener('animationstart', handler, false);
+                this.addAnimations();
+            }
+        };
+        new A().init();
+    })();
+}
+// 20140730
+(function cnbeta() {
+    if (document.URL.indexOf('cnbeta.com') >= 0) {
+        var elms = document.body.querySelectorAll("p>embed");
+        Array.prototype.forEach.call(elms, function(elm) {
+            elm.style.marginLeft = "0px";
+        });
+    }
+})();
+//baidu
+if(document.URL.indexOf('www.baidu.com') >= 0){
+    if(document && document.getElementsByTagName && document.getElementById && document.body){
+        var aa = function(){
+            var all = document.body.querySelectorAll("#content_left div,#content_left table");
+            for(var i = 0; i < all.length; i++){
+                if(/display:\s?(table|block)\s!important/.test(all[i].getAttribute("style"))){all[i].style.display= "none";all[i].style.visibility='hidden';}
+            }
+            all = document.body.querySelectorAll('.result.c-container[id="1"]');
+            //if(all.length == 1) return;
+            for(var i = 0; i < all.length; i++){
+                if(all[i].innerHTML && all[i].innerHTML.indexOf('广告')>-1){
+                    all[i].style.display= "none";all[i].style.visibility='hidden';
+                }
+            }
+        }
+        aa();
+        document.getElementById('wrapper_wrapper').addEventListener('DOMSubtreeModified',aa)
+    };
+}
+// 20140922
+(function kill_360() {
+    if (document.URL.indexOf('so.com') >= 0) {
+        document.getElementById("e_idea_pp").style.display = none;
+    }
+})();
+if (document.URL.indexOf("tv.sohu.com") >= 0){
+    if (document.cookie.indexOf("fee_status=true")==-1){document.cookie='fee_status=true'};
+}
+if (document.URL.indexOf("56.com") >= 0){
+    if (document.cookie.indexOf("fee_status=true")==-1){document.cookie='fee_status=true'};
+}
+if (document.URL.indexOf("iqiyi.com") >= 0){
+    if (document.cookie.indexOf("player_forcedType=h5_VOD")==-1){
+        document.cookie='player_forcedType=h5_VOD'
+        if(localStorage.reloadTime && Date.now() - parseInt(localStorage.reloadTime)<60000){
+            console.log('no reload')
+        }else{
+            location.reload()
+            localStorage.reloadTime = Date.now();
+        }
+    }
+}
+</script><style type="text/css">object,embed{                -webkit-animation-duration:.001s;-webkit-animation-name:playerInserted;                -ms-animation-duration:.001s;-ms-animation-name:playerInserted;                -o-animation-duration:.001s;-o-animation-name:playerInserted;                animation-duration:.001s;animation-name:playerInserted;}                @-webkit-keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}                @-ms-keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}                @-o-keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}                @keyframes playerInserted{from{opacity:0.99;}to{opacity:1;}}</style></head>
+<body>
+<a name="top"></a>
+<div id="page_begin_html"></div><script>load_page_begin_html();</script>
+
+<!--done-->
+<div id="header">
+	
+<!--done-->
+<div class="header">
+	<div class="headerText">
+		<a id="Header1_HeaderTitle" class="headermaintitle" href="http://www.cnblogs.com/liwei0526vip/">肖邦linux</a><br>
+		有时候，问题很复杂，答案却很简单。跟生活玩，别太认真了，反正最终没谁能活着离开这场游戏。
+	</div>
+</div>
+
+</div>
+
+<div id="mytopmenu">
+	
+		<div id="mylinks"><a id="blog_nav_sitehome" class="menu" href="http://www.cnblogs.com/">博客园</a> &nbsp;
+<a id="blog_nav_myhome" class="menu" href="http://www.cnblogs.com/liwei0526vip/">首页</a> &nbsp;
+<a id="blog_nav_newpost" class="menu" rel="nofollow" href="https://i.cnblogs.com/EditPosts.aspx?opt=1">新随笔</a> &nbsp;
+<a id="blog_nav_contact" class="menu" rel="nofollow" href="https://msg.cnblogs.com/send/%E8%82%96%E9%82%A6linux">联系</a> &nbsp;
+<a id="blog_nav_rss" class="menu" href="http://www.cnblogs.com/liwei0526vip/rss">订阅</a><a id="blog_nav_rss_image" href="http://www.cnblogs.com/liwei0526vip/rss"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/xml.gif" alt="订阅"></a>&nbsp;
+<a id="blog_nav_admin" class="menu" rel="nofollow" href="https://i.cnblogs.com/">管理</a>
+</div>
+		<div id="mystats"><div id="blog_stats">
+随笔-87&nbsp;
+评论-31&nbsp;
+文章-0&nbsp;
+<!--trackbacks-0-->
+</div></div>
+	
+</div>
+<div id="centercontent">
+	
+<div id="post_detail">
+<div class="post">
+	<h1 class="postTitle"><a id="cb_post_title_url" class="postTitle2" href="http://www.cnblogs.com/liwei0526vip/p/6370103.html">使用LVS实现负载均衡原理及安装配置详解</a></h1>
+	<div id="cnblogs_post_body"><p><span style="font-family: 楷体; font-size: 16px;">&nbsp; &nbsp; <span style="color: #888888;">负载均衡集群是 load balance 集群的简写，翻译成中文就是负载均衡集群。常用的负载均衡开源软件有nginx、lvs、haproxy，商业的硬件负载均衡设备F5、Netscale。这里主要是学习 LVS 并对其进行了详细的总结记录。</span></span></p>
+<h2 id="blogTitle0"><span style="font-family: &#39;courier new&#39;, courier;">一、负载均衡LVS基本介绍</span></h2>
+<p><span style="font-family: &#39;courier new&#39;, courier;">&nbsp; &nbsp; LB集群的架构和原理很简单，就是当用户的请求过来时，会直接分发到Director Server上，然后它把用户的请求根据设置好的调度算法，智能均衡地分发到后端真正服务器(real server)上。为了避免不同机器上用户请求得到的数据不一样，需要用到了共享存储，这样保证所有用户请求的数据是一样的。</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">&nbsp; &nbsp; LVS是 Linux Virtual Server 的简称，也就是Linux虚拟服务器。这是一个由章文嵩博士发起的一个开源项目，它的官方网站是 <a href="http://www.linuxvirtualserver.org/" target="_blank">http://www.linuxvirtualserver.org</a> 现在 LVS 已经是 Linux 内核标准的一部分。使用 LVS 可以达到的技术目标是：通过 LVS 达到的负载均衡技术和 Linux 操作系统实现一个高性能高可用的 Linux 服务器集群，它具有良好的可靠性、可扩展性和可操作性。从而以低廉的成本实现最优的性能。LVS 是一个实现负载均衡集群的开源软件项目，LVS架构从逻辑上可分为调度层、Server集群层和共享存储。</span></p>
+<p>&nbsp;</p>
+<h2 id="blogTitle1"><span style="font-family: &#39;courier new&#39;, courier;">二、LVS的基本工作原理</span></h2>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/781035-20170207085512619-1627288925.png" alt="" width="568" height="276"></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>1.</strong></span> 当用户向负载均衡调度器（Director Server）发起请求，调度器将请求发往至内核空间<br><span style="color: #0000ff;"><strong>2.</strong></span> PREROUTING链首先会接收到用户请求，判断目标IP确定是本机IP，将数据包发往INPUT链<br><span style="color: #0000ff;"><strong>3.</strong></span> IPVS是工作在INPUT链上的，当用户请求到达INPUT时，IPVS会将用户请求和自己已定义好的集群服务进行比对，如果用户请求的就是定义的集群服务，那么此时IPVS会强行修改数据包里的目标IP地址及端口，并将新的数据包发往POSTROUTING链<br><span style="color: #0000ff;"><strong>4.</strong></span> POSTROUTING链接收数据包后发现目标IP地址刚好是自己的后端服务器，那么此时通过选路，将数据包最终发送给后端的服务器</span></p>
+<p>&nbsp;</p>
+<h2 id="blogTitle2"><span style="font-family: &#39;courier new&#39;, courier;">三、LVS的组成</span></h2>
+<p><span style="font-family: &#39;courier new&#39;, courier;">LVS 由2部分程序组成，包括 ipvs 和 ipvsadm。</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">1. ipvs(ip virtual server)：一段代码工作在内核空间，叫ipvs，是真正生效实现调度的代码。<br>2. ipvsadm：另外一段是工作在用户空间，叫ipvsadm，负责为ipvs内核框架编写规则，定义谁是集群服务，而谁是后端真实的服务器(Real Server)</span></p>
+<p>&nbsp;</p>
+<h2 id="blogTitle3"><span style="font-family: &#39;courier new&#39;, courier;">四、LVS相关术语</span></h2>
+<p><span style="font-family: &#39;courier new&#39;, courier;">1. DS：Director Server。指的是前端负载均衡器节点。<br>2. RS：Real Server。后端真实的工作服务器。<br>3. VIP：向外部直接面向用户请求，作为用户请求的目标的IP地址。<br>4. DIP：Director Server IP，主要用于和内部主机通讯的IP地址。<br>5. RIP：Real Server IP，后端服务器的IP地址。<br>6. CIP：Client IP，访问客户端的IP地址。</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">下边是三种工作模式的原理和特点总结。</span></p>
+<p>&nbsp;</p>
+<h2 id="blogTitle4"><span style="font-family: &#39;courier new&#39;, courier;">五、LVS/NAT原理和特点</span></h2>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>1. 重点理解NAT方式的实现原理和数据包的改变。</strong></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/781035-20170208130339541-1597888386.png" alt="" width="569" height="317"></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(a)</strong></span>. 当用户请求到达Director Server，此时请求的数据报文会先到内核空间的PREROUTING链。 此时报文的源IP为CIP，目标IP为VIP </span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(b)</strong></span>. PREROUTING检查发现数据包的目标IP是本机，将数据包送至INPUT链</span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(c)</strong></span>. IPVS比对数据包请求的服务是否为集群服务，若是，修改数据包的目标IP地址为后端服务器IP，然后将数据包发至POSTROUTING链。 此时报文的源IP为CIP，目标IP为RIP </span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(d)</strong></span>. POSTROUTING链通过选路，将数据包发送给Real Server</span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(e)</strong></span>. Real Server比对发现目标为自己的IP，开始构建响应报文发回给Director Server。 此时报文的源IP为RIP，目标IP为CIP </span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(f)</strong></span>. Director Server在响应客户端前，此时会将源IP地址修改为自己的VIP地址，然后响应给客户端。 此时报文的源IP为VIP，目标IP为CIP</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>2. LVS-NAT模型的特性</strong></span></p>
+<ul>
+<li><span style="font-family: &#39;courier new&#39;, courier;">RS应该使用私有地址，RS的网关必须指向DIP</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">DIP和RIP必须在同一个网段内</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">请求和响应报文都需要经过Director Server，高负载场景中，Director Server易成为性能瓶颈</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">支持端口映射</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">RS可以使用任意操作系统</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">缺陷：对Director Server压力会比较大，请求和响应都需经过director server</span></li>
+
+
+
+
+
+
+
+
+
+</ul>
+<p>&nbsp;</p>
+<h2 id="blogTitle5"><span style="font-family: &#39;courier new&#39;, courier;">六、LVS/DR原理和特点</span></h2>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>1. 重将请求报文的目标MAC地址设定为挑选出的RS的MAC地址</strong></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/781035-20170208131643026-1985709106.png" alt="" width="569" height="318">&nbsp;</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(a)</strong></span> 当用户请求到达Director Server，此时请求的数据报文会先到内核空间的PREROUTING链。 此时报文的源IP为CIP，目标IP为VIP</span><br><span style="font-family: &#39;courier new&#39;, courier;"><strong><span style="color: #0000ff;">(b)</span></strong> PREROUTING检查发现数据包的目标IP是本机，将数据包送至INPUT链</span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(c)</strong></span> IPVS比对数据包请求的服务是否为集群服务，若是，将请求报文中的源MAC地址修改为DIP的MAC地址，将目标MAC地址修改RIP的MAC地址，然后将数据包发至POSTROUTING链。 此时的源IP和目的IP均未修改，仅修改了源MAC地址为DIP的MAC地址，目标MAC地址为RIP的MAC地址 </span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(d)</strong></span> 由于DS和RS在同一个网络中，所以是通过二层来传输。POSTROUTING链检查目标MAC地址为RIP的MAC地址，那么此时数据包将会发至Real Server。</span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(e)</strong></span> RS发现请求报文的MAC地址是自己的MAC地址，就接收此报文。处理完成之后，将响应报文通过lo接口传送给eth0网卡然后向外发出。 此时的源IP地址为VIP，目标IP为CIP </span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(f)</strong></span> 响应报文最终送达至客户端</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>2. LVS-DR模型的特性</strong></span></p>
+<ul>
+<li><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;">特点1：</span>保证前端路由将目标地址为VIP报文统统发给Director Server，而不是RS</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">RS可以使用私有地址；也可以是公网地址，如果使用公网地址，此时可以通过互联网对RIP进行直接访问</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">RS跟Director Server必须在同一个物理网络中</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">所有的请求报文经由Director Server，但响应报文必须不能进过Director Server</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">不支持地址转换，也不支持端口映射</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">RS可以是大多数常见的操作系统</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">RS的网关绝不允许指向DIP(因为我们不允许他经过director)</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">RS上的lo接口配置VIP的IP地址</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">缺陷：RS和DS必须在同一机房中</span></li>
+
+
+
+
+
+
+
+
+</ul>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>3. 特点1的解决方案：</strong></span></p>
+<ul>
+<li><span style="font-family: &#39;courier new&#39;, courier;">在前端路由器做静态地址路由绑定，将对于VIP的地址仅路由到Director Server</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">存在问题：用户未必有路由操作权限，因为有可能是运营商提供的，所以这个方法未必实用</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">arptables：在arp的层次上实现在ARP解析时做防火墙规则，过滤RS响应ARP请求。这是由iptables提供的</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">修改RS上内核参数（arp_ignore和arp_announce）将RS上的VIP配置在lo接口的别名上，并限制其不能响应对VIP地址解析请求。</span></li>
+
+
+
+
+
+
+
+
+</ul>
+<p>&nbsp;</p>
+<h2 id="blogTitle6"><span style="font-family: &#39;courier new&#39;, courier;">七、LVS/Tun原理和特点</span></h2>
+<p><span style="font-family: &#39;courier new&#39;, courier;">在原有的IP报文外再次封装多一层IP首部，内部IP首部(源地址为CIP，目标IIP为VIP)，外层IP首部(源地址为DIP，目标IP为RIP)</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/781035-20170208132504057-1671947616.png" alt="" width="579" height="326"></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(a)</strong></span> 当用户请求到达Director Server，此时请求的数据报文会先到内核空间的PREROUTING链。 此时报文的源IP为CIP，目标IP为VIP 。</span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(b)</strong></span> PREROUTING检查发现数据包的目标IP是本机，将数据包送至INPUT链</span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(c)</strong></span> IPVS比对数据包请求的服务是否为集群服务，若是，在请求报文的首部再次封装一层IP报文，封装源IP为为DIP，目标IP为RIP。然后发至POSTROUTING链。 此时源IP为DIP，目标IP为RIP </span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(d)</strong></span> POSTROUTING链根据最新封装的IP报文，将数据包发至RS（因为在外层封装多了一层IP首部，所以可以理解为此时通过隧道传输）。 此时源IP为DIP，目标IP为RIP</span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(e)</strong></span> RS接收到报文后发现是自己的IP地址，就将报文接收下来，拆除掉最外层的IP后，会发现里面还有一层IP首部，而且目标是自己的lo接口VIP，那么此时RS开始处理此请求，处理完成之后，通过lo接口送给eth0网卡，然后向外传递。 此时的源IP地址为VIP，目标IP为CIP</span><br><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #0000ff;"><strong>(f)</strong></span> 响应报文最终送达至客户端</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>LVS-Tun模型特性</strong></span></p>
+<ul>
+<li><span style="font-family: &#39;courier new&#39;, courier;">RIP、VIP、DIP全是公网地址</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">RS的网关不会也不可能指向DIP</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">所有的请求报文经由Director Server，但响应报文必须不能进过Director Server</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">不支持端口映射</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">RS的系统必须支持隧道</span></li>
+
+
+
+
+
+
+
+
+</ul>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><strong><span style="color: #888888;">其实企业中最常用的是 DR 实现方式，而 NAT 配置上比较简单和方便，后边实践中会总结 DR 和 NAT 具体使用配置过程。</span></strong></span></p>
+<p>&nbsp;</p>
+<h2 id="blogTitle7"><span style="font-family: &#39;courier new&#39;, courier;">八、LVS的八种调度算法</span></h2>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>1. 轮叫调度 rr</strong></span><br><span style="font-family: &#39;courier new&#39;, courier;">这种算法是最简单的，就是按依次循环的方式将请求调度到不同的服务器上，该算法最大的特点就是简单。轮询算法假设所有的服务器处理请求的能力都是一样的，调度器会将所有的请求平均分配给每个真实服务器，不管后端 RS 配置和处理能力，非常均衡地分发下去。</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>2. 加权轮叫 wrr</strong></span><br><span style="font-family: &#39;courier new&#39;, courier;">这种算法比 rr 的算法多了一个权重的概念，可以给 RS 设置权重，权重越高，那么分发的请求数越多，权重的取值范围 0 – 100。主要是对rr算法的一种优化和补充， LVS 会考虑每台服务器的性能，并给每台服务器添加要给权值，如果服务器A的权值为1，服务器B的权值为2，则调度到服务器B的请求会是服务器A的2倍。权值越高的服务器，处理的请求越多。</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>3. 最少链接 lc</strong></span><br><span style="font-family: &#39;courier new&#39;, courier;">这个算法会根据后端 RS 的连接数来决定把请求分发给谁，比如 RS1 连接数比 RS2 连接数少，那么请求就优先发给 RS1&nbsp;</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>4. 加权最少链接 wlc</strong></span><br><span style="font-family: &#39;courier new&#39;, courier;">这个算法比 lc 多了一个权重的概念。</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>5. 基于局部性的最少连接调度算法 lblc</strong></span><br><span style="font-family: &#39;courier new&#39;, courier;">这个算法是请求数据包的目标 IP 地址的一种调度算法，该算法先根据请求的目标 IP 地址寻找最近的该目标 IP 地址所有使用的服务器，如果这台服务器依然可用，并且有能力处理该请求，调度器会尽量选择相同的服务器，否则会继续选择其它可行的服务器</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>6. 复杂的基于局部性最少的连接算法 lblcr</strong></span><br><span style="font-family: &#39;courier new&#39;, courier;">记录的不是要给目标 IP 与一台服务器之间的连接记录，它会维护一个目标 IP 到一组服务器之间的映射关系，防止单点服务器负载过高。</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>7. 目标地址散列调度算法 dh</strong></span><br><span style="font-family: &#39;courier new&#39;, courier;">该算法是根据目标 IP 地址通过散列函数将目标 IP 与服务器建立映射关系，出现服务器不可用或负载过高的情况下，发往该目标 IP 的请求会固定发给该服务器。</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>8. 源地址散列调度算法 sh</strong></span><br><span style="font-family: &#39;courier new&#39;, courier;">与目标地址散列调度算法类似，但它是根据源地址散列算法进行静态分配固定的服务器资源。</span></p>
+<p>&nbsp;</p>
+<h2 id="blogTitle8"><span style="font-family: &#39;courier new&#39;, courier;">九、实践LVS的NAT模式</span></h2>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>1、实验环境</strong></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">三台服务器，一台作为 director，两台作为 real server，director 有一个外网网卡<span style="color: #ff0000;">(172.16.254.200)</span> 和一个内网ip<span style="color: #ff0000;">(192.168.0.8)</span>，两个 real server 上只有内网 ip <span style="color: #ff0000;">(192.168.0.18)</span> 和 <span style="color: #ff0000;">(192.168.0.28)</span>，并且需要把两个 real server 的内网网关设置为 director 的内网 ip<span style="color: #ff0000;">(192.168.0.8)</span></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>2、安装和配置</strong></span></p>
+<div class="cnblogs_code">
+<pre><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #000000;">两个 real server 上都安装 nginx 服务
+# </span><span style="color: #0000ff;">yum</span> <span style="color: #0000ff;">install</span> -<span style="color: #000000;">y nginx
+
+Director 上安装 ipvsadm
+# </span><span style="color: #0000ff;">yum</span> <span style="color: #0000ff;">install</span> -y ipvsadm</span></pre>
+</div>
+<p><strong><span style="font-family: &#39;courier new&#39;, courier;">Director 上编辑 nat 实现脚本</span></strong></p>
+<div class="cnblogs_code"><div class="cnblogs_code_toolbar"><span class="cnblogs_code_copy"><a href="javascript:void(0);" onclick="copyCnblogsCode(this)" title="复制代码"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/copycode.gif" alt="复制代码"></a></span></div>
+<pre><span style="font-family: &#39;courier new&#39;, courier;"># vim /usr/local/sbin/lvs_nat.<span style="color: #0000ff;">sh</span><span style="color: #000000;"><span style="color: #888888;">
+# 编辑写入如下内容：</span>
+#</span>! /bin/<span style="color: #000000;">bash
+# director服务器上开启路由转发功能:
+</span><span style="color: #0000ff;">echo</span> <span style="color: #800080;">1</span> &gt; /proc/sys/net/ipv4/<span style="color: #000000;">ip_forward
+<span style="color: #888888;"># 关闭 icmp 的重定向
+</span></span><span style="color: #0000ff;">echo</span> <span style="color: #800080;">0</span> &gt; /proc/sys/net/ipv4/conf/all/<span style="color: #000000;">send_redirects
+</span><span style="color: #0000ff;">echo</span> <span style="color: #800080;">0</span> &gt; /proc/sys/net/ipv4/conf/default/<span style="color: #000000;">send_redirects
+</span><span style="color: #0000ff;">echo</span> <span style="color: #800080;">0</span> &gt; /proc/sys/net/ipv4/conf/eth0/<span style="color: #000000;">send_redirects
+</span><span style="color: #0000ff;">echo</span> <span style="color: #800080;">0</span> &gt; /proc/sys/net/ipv4/conf/eth1/<span style="color: #000000;">send_redirects
+<span style="color: #888888;"># director设置 nat 防火墙</span>
+iptables </span>-t nat -<span style="color: #000000;">F
+iptables </span>-t nat -<span style="color: #000000;">X
+iptables </span>-t nat -A POSTROUTING -s <span style="color: #800080;">192.168</span>.<span style="color: #800080;">0.0</span>/<span style="color: #800080;">24</span> -<span style="color: #000000;">j MASQUERADE
+<span style="color: #888888;"># director设置 ipvsadm</span>
+IPVSADM</span>=<span style="color: #800000;">'</span><span style="color: #800000;">/sbin/ipvsadm</span><span style="color: #800000;">'</span><span style="color: #000000;">
+$IPVSADM </span>-<span style="color: #000000;">C
+$IPVSADM </span>-A -t <span style="color: #800080;">172.16</span>.<span style="color: #800080;">254.200</span>:<span style="color: #800080;">80</span> -<span style="color: #000000;">s wrr
+$IPVSADM </span>-a -t <span style="color: #800080;">172.16</span>.<span style="color: #800080;">254.200</span>:<span style="color: #800080;">80</span> -r <span style="color: #800080;">192.168</span>.<span style="color: #800080;">0.18</span>:<span style="color: #800080;">80</span> -m -<span style="color: #0000ff;">w</span> <span style="color: #800080;">1</span><span style="color: #000000;">
+$IPVSADM </span>-a -t <span style="color: #800080;">172.16</span>.<span style="color: #800080;">254.200</span>:<span style="color: #800080;">80</span> -r <span style="color: #800080;">192.168</span>.<span style="color: #800080;">0.28</span>:<span style="color: #800080;">80</span> -m -<span style="color: #0000ff;">w</span> <span style="color: #800080;">1</span></span></pre>
+<div class="cnblogs_code_toolbar"><span class="cnblogs_code_copy"><a href="javascript:void(0);" onclick="copyCnblogsCode(this)" title="复制代码"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/copycode.gif" alt="复制代码"></a></span></div></div>
+<p><span style="font-family: &#39;courier new&#39;, courier;">保存后，在 Director 上直接运行这个脚本就可以完成 lvs/nat 的配置</span></p>
+<div class="cnblogs_code">
+<pre><span style="font-family: &#39;courier new&#39;, courier;">/bin/bash /usr/local/sbin/lvs_nat.<span style="color: #0000ff;">sh</span></span></pre>
+</div>
+<p><strong><span style="font-family: &#39;courier new&#39;, courier;">查看ipvsadm设置的规则</span></strong></p>
+<div class="cnblogs_code">
+<pre><span style="font-family: &#39;courier new&#39;, courier;">ipvsadm -<span style="color: #0000ff;">ln</span></span></pre>
+</div>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>3、测试LVS的效果</strong></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">通过浏览器测试2台机器上的web内容 <a href="http://172.16.254.200/">http://172.16.254.200</a> 。为了区分开，我们可以把 nginx 的默认页修改一下：</span></p>
+<div class="cnblogs_code">
+<pre><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #000000;"><span style="color: #808080;">在 RS1 上执行</span>
+# </span><span style="color: #0000ff;">echo</span> <span style="color: #800000;">"</span><span style="color: #800000;">rs1rs1</span><span style="color: #800000;">"</span> &gt;/usr/share/nginx/html/<span style="color: #000000;">index.html
+
+<span style="color: #808080;">在 RS2 上执行</span>
+# </span><span style="color: #0000ff;">echo</span> <span style="color: #800000;">"</span><span style="color: #800000;">rs2rs2</span><span style="color: #800000;">"</span> &gt;/usr/share/nginx/html/index.html</span></pre>
+</div>
+<p><span style="font-family: &#39;courier new&#39;, courier;">注意，切记一定要在两台 RS 上设置网关的 IP 为 director 的内网 IP。</span></p>
+<p>&nbsp;</p>
+<h2 id="blogTitle9"><span style="font-family: &#39;courier new&#39;, courier;">十、实践LVS的DR模式</span></h2>
+<p><span style="font-size: 16px; font-family: &#39;courier new&#39;, courier;"><strong>1、实验环境</strong></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">三台机器：</span></p>
+<ul>
+<li><span style="font-family: &#39;courier new&#39;, courier;">Director节点： &nbsp;(eth0 192.168.0.8&nbsp; vip eth0:0 192.168.0.38)</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">Real server1： (eth0 192.168.0.18 vip lo:0 192.168.0.38)</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;">Real server2： (eth0 192.168.0.28 vip lo:0 192.168.0.38)</span></li>
+</ul>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><strong><span style="font-size: 16px;">2、安装</span></strong></span></p>
+<div class="cnblogs_code">
+<pre><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #000000;">两个 real server 上都安装 nginx 服务
+# </span><span style="color: #0000ff;">yum</span> <span style="color: #0000ff;">install</span> -<span style="color: #000000;">y nginx
+
+Director 上安装 ipvsadm
+# </span><span style="color: #0000ff;">yum</span> <span style="color: #0000ff;">install</span> -y ipvsadm</span></pre>
+</div>
+<p><span style="font-size: 16px; font-family: &#39;courier new&#39;, courier;"><strong>3、Director 上配置脚本</strong></span></p>
+<div class="cnblogs_code"><div class="cnblogs_code_toolbar"><span class="cnblogs_code_copy"><a href="javascript:void(0);" onclick="copyCnblogsCode(this)" title="复制代码"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/copycode.gif" alt="复制代码"></a></span></div>
+<pre><span style="font-family: &#39;courier new&#39;, courier;"># vim /usr/local/sbin/lvs_dr.<span style="color: #0000ff;">sh</span><span style="color: #000000;">
+#</span>! /bin/<span style="color: #000000;">bash
+</span><span style="color: #0000ff;">echo</span> <span style="color: #800080;">1</span> &gt; /proc/sys/net/ipv4/<span style="color: #000000;">ip_forward
+ipv</span>=/sbin/<span style="color: #000000;">ipvsadm
+vip</span>=<span style="color: #800080;">192.168</span>.<span style="color: #800080;">0.38</span><span style="color: #000000;">
+rs1</span>=<span style="color: #800080;">192.168</span>.<span style="color: #800080;">0.18</span><span style="color: #000000;">
+rs2</span>=<span style="color: #800080;">192.168</span>.<span style="color: #800080;">0.28</span>
+<span style="color: #0000ff;">ifconfig</span> eth0:<span style="color: #800080;">0</span><span style="color: #000000;"> down
+</span><span style="color: #0000ff;">ifconfig</span> eth0:<span style="color: #800080;">0</span> $vip broadcast $vip netmask <span style="color: #800080;">255.255</span>.<span style="color: #800080;">255.255</span><span style="color: #000000;"> up
+route add </span>-host $vip dev eth0:<span style="color: #800080;">0</span><span style="color: #000000;">
+$ipv </span>-<span style="color: #000000;">C
+$ipv </span>-A -t $vip:<span style="color: #800080;">80</span> -<span style="color: #000000;">s wrr 
+$ipv </span>-a -t $vip:<span style="color: #800080;">80</span> -r $rs1:<span style="color: #800080;">80</span> -g -<span style="color: #0000ff;">w</span> <span style="color: #800080;">3</span><span style="color: #000000;">
+$ipv </span>-a -t $vip:<span style="color: #800080;">80</span> -r $rs2:<span style="color: #800080;">80</span> -g -<span style="color: #0000ff;">w</span> <span style="color: #800080;">1</span></span></pre>
+<div class="cnblogs_code_toolbar"><span class="cnblogs_code_copy"><a href="javascript:void(0);" onclick="copyCnblogsCode(this)" title="复制代码"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/copycode.gif" alt="复制代码"></a></span></div></div>
+<p><strong><span style="font-family: &#39;courier new&#39;, courier;">执行脚本：</span></strong></p>
+<div class="cnblogs_code">
+<pre><span style="font-family: &#39;courier new&#39;, courier;"># bash /usr/local/sbin/lvs_dr.<span style="color: #0000ff;">sh</span></span></pre>
+</div>
+<p><span style="font-size: 16px; font-family: &#39;courier new&#39;, courier;"><strong>4、在2台 rs 上配置脚本：</strong></span></p>
+<div class="cnblogs_code"><div class="cnblogs_code_toolbar"><span class="cnblogs_code_copy"><a href="javascript:void(0);" onclick="copyCnblogsCode(this)" title="复制代码"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/copycode.gif" alt="复制代码"></a></span></div>
+<pre><span style="font-family: &#39;courier new&#39;, courier;"># vim /usr/local/sbin/lvs_dr_rs.<span style="color: #0000ff;">sh</span><span style="color: #000000;">
+#</span>! /bin/<span style="color: #000000;">bash
+vip</span>=<span style="color: #800080;">192.168</span>.<span style="color: #800080;">0.38</span>
+<span style="color: #0000ff;">ifconfig</span> lo:<span style="color: #800080;">0</span> $vip broadcast $vip netmask <span style="color: #800080;">255.255</span>.<span style="color: #800080;">255.255</span><span style="color: #000000;"> up
+route add </span>-host $vip lo:<span style="color: #800080;">0</span>
+<span style="color: #0000ff;">echo</span> <span style="color: #800000;">"</span><span style="color: #800000;">1</span><span style="color: #800000;">"</span> &gt;/proc/sys/net/ipv4/conf/lo/<span style="color: #000000;">arp_ignore
+</span><span style="color: #0000ff;">echo</span> <span style="color: #800000;">"</span><span style="color: #800000;">2</span><span style="color: #800000;">"</span> &gt;/proc/sys/net/ipv4/conf/lo/<span style="color: #000000;">arp_announce
+</span><span style="color: #0000ff;">echo</span> <span style="color: #800000;">"</span><span style="color: #800000;">1</span><span style="color: #800000;">"</span> &gt;/proc/sys/net/ipv4/conf/all/<span style="color: #000000;">arp_ignore
+</span><span style="color: #0000ff;">echo</span> <span style="color: #800000;">"</span><span style="color: #800000;">2</span><span style="color: #800000;">"</span> &gt;/proc/sys/net/ipv4/conf/all/arp_announce</span></pre>
+<div class="cnblogs_code_toolbar"><span class="cnblogs_code_copy"><a href="javascript:void(0);" onclick="copyCnblogsCode(this)" title="复制代码"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/copycode.gif" alt="复制代码"></a></span></div></div>
+<p><strong><span style="font-family: &#39;courier new&#39;, courier;">rs 上分别执行脚本：</span></strong></p>
+<div class="cnblogs_code">
+<pre><span style="font-family: &#39;courier new&#39;, courier;">bash /usr/local/sbin/lvs_dr_rs.<span style="color: #0000ff;">sh</span></span></pre>
+</div>
+<p><span style="font-size: 16px; font-family: &#39;courier new&#39;, courier;"><strong>5、实验测试</strong></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">测试方式同上，浏览器访问 <a href="http://192.168.0.38/">http://192.168.0.38</a></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">注意：在 DR 模式下，2台 rs 节点的 gateway 不需要设置成 dir 节点的 IP 。</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">参考链接地址：<a href="http://www.cnblogs.com/lgfeng/archive/2012/10/16/2726308.html">http://www.cnblogs.com/lgfeng/archive/2012/10/16/2726308.html</a></span></p>
+<p align="left">&nbsp;</p>
+<h2 align="left" id="blogTitle10"><span style="font-family: &#39;courier new&#39;, courier;">十一、LVS结合keepalive</span></h2>
+<p align="left"><span style="font-family: &#39;courier new&#39;, courier;">LVS可以实现负载均衡，但是不能够进行健康检查，比如一个rs出现故障，LVS 仍然会把请求转发给故障的rs服务器，这样就会导致请求的无效性。keepalive 软件可以进行健康检查，而且能同时实现 LVS 的高可用性，解决 LVS 单点故障的问题，其实 keepalive 就是为 LVS 而生的。</span></p>
+<p align="left"><span style="font-size: 16px; font-family: &#39;courier new&#39;, courier;"><strong><span>1、实验环境</span></strong></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">4台节点</span></p>
+<ul>
+<li><span style="font-family: &#39;courier new&#39;, courier;"><strong>Keepalived1 + lvs1(Director1)</strong>：192.168.0.48</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;"><strong>Keepalived2 + lvs2(Director2)</strong>：192.168.0.58</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;"><strong>Real server1</strong>：192.168.0.18</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;"><strong>Real server2</strong>：192.168.0.28</span></li>
+<li><span style="font-family: &#39;courier new&#39;, courier;"><strong>IP</strong>: 192.168.0.38</span></li>
+</ul>
+<p><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;"><strong>2、安装系统软件</strong></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><strong>Lvs + keepalived的2个节点安装</strong></span></p>
+<div class="cnblogs_code">
+<pre><span style="font-family: &#39;courier new&#39;, courier;"># <span style="color: #0000ff;">yum</span> <span style="color: #0000ff;">install</span> ipvsadm keepalived -y</span></pre>
+</div>
+<p><strong><span style="font-family: &#39;courier new&#39;, courier;">Real server + nginx服务的2个节点安装</span></strong></p>
+<div class="cnblogs_code">
+<pre><span style="font-family: &#39;courier new&#39;, courier;"># <span style="color: #0000ff;">yum</span> <span style="color: #0000ff;">install</span> epel-release -<span style="color: #000000;">y
+# </span><span style="color: #0000ff;">yum</span> <span style="color: #0000ff;">install</span> nginx -y</span></pre>
+</div>
+<p><span style="font-size: 16px;"><strong><span style="font-family: &#39;courier new&#39;, courier;">3、设置配置脚本</span></strong></span></p>
+<p><strong><span style="font-family: &#39;courier new&#39;, courier;">Real server节点2台配置脚本：</span></strong></p>
+<div class="cnblogs_code"><div class="cnblogs_code_toolbar"><span class="cnblogs_code_copy"><a href="javascript:void(0);" onclick="copyCnblogsCode(this)" title="复制代码"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/copycode.gif" alt="复制代码"></a></span></div>
+<pre><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #808080;"># vim /usr/local/sbin/lvs_dr_rs.sh</span><span style="color: #0000ff;">
+#! /bin/</span><span style="color: #000000;"><span style="color: #0000ff;">bash</span>
+vip</span>=<span style="color: #800080;">192.168</span>.<span style="color: #800080;">0.38</span>
+<span style="color: #0000ff;">ifconfig</span> lo:<span style="color: #800080;">0</span> $vip broadcast $vip netmask <span style="color: #800080;">255.255</span>.<span style="color: #800080;">255.255</span><span style="color: #000000;"> up
+route add </span>-host $vip lo:<span style="color: #800080;">0</span>
+<span style="color: #0000ff;">echo</span> <span style="color: #800000;">"</span><span style="color: #800000;">1</span><span style="color: #800000;">"</span> &gt;/proc/sys/net/ipv4/conf/lo/<span style="color: #000000;">arp_ignore
+</span><span style="color: #0000ff;">echo</span> <span style="color: #800000;">"</span><span style="color: #800000;">2</span><span style="color: #800000;">"</span> &gt;/proc/sys/net/ipv4/conf/lo/<span style="color: #000000;">arp_announce
+</span><span style="color: #0000ff;">echo</span> <span style="color: #800000;">"</span><span style="color: #800000;">1</span><span style="color: #800000;">"</span> &gt;/proc/sys/net/ipv4/conf/all/<span style="color: #000000;">arp_ignore
+</span><span style="color: #0000ff;">echo</span> <span style="color: #800000;">"</span><span style="color: #800000;">2</span><span style="color: #800000;">"</span> &gt;/proc/sys/net/ipv4/conf/all/<span style="color: #000000;">arp_announce
+
+<span style="color: #888888;">2节点rs 上分别执行脚本：</span>
+bash </span>/usr/local/sbin/lvs_dr_rs.<span style="color: #0000ff;">sh</span></span></pre>
+<div class="cnblogs_code_toolbar"><span class="cnblogs_code_copy"><a href="javascript:void(0);" onclick="copyCnblogsCode(this)" title="复制代码"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/copycode.gif" alt="复制代码"></a></span></div></div>
+<p><strong><span style="font-family: &#39;courier new&#39;, courier;">keepalived节点配置(2节点)：</span></strong></p>
+<div class="cnblogs_code"><div class="cnblogs_code_toolbar"><span class="cnblogs_code_copy"><a href="javascript:void(0);" onclick="copyCnblogsCode(this)" title="复制代码"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/copycode.gif" alt="复制代码"></a></span></div>
+<pre><span style="font-family: &#39;courier new&#39;, courier;"><span style="color: #000000;"><span style="color: #888888;">主节点( MASTER )配置文件</span>
+vim </span>/etc/keepalived/<span style="color: #000000;">keepalived.conf
+vrrp_instance VI_1 {
+    state MASTER
+    interface eth0
+    virtual_router_id </span><span style="color: #800080;">51</span><span style="color: #000000;">
+    priority </span><span style="color: #800080;">100</span><span style="color: #000000;">
+    advert_int </span><span style="color: #800080;">1</span><span style="color: #000000;">
+    authentication {
+        auth_type PASS
+        auth_pass </span><span style="color: #800080;">1111</span><span style="color: #000000;">
+    }
+    virtual_ipaddress {
+        </span><span style="color: #800080;">192.168</span>.<span style="color: #800080;">0.38</span><span style="color: #000000;">
+    }
+}
+
+virtual_server </span><span style="color: #800080;">192.168</span>.<span style="color: #800080;">0.38</span> <span style="color: #800080;">80</span><span style="color: #000000;"> {
+    delay_loop </span><span style="color: #800080;">6</span><span style="color: #000000;">
+    lb_algo rr
+    lb_kind DR
+    persistence_timeout </span><span style="color: #800080;">0</span><span style="color: #000000;">
+    protocol TCP
+
+    real_server </span><span style="color: #800080;">192.168</span>.<span style="color: #800080;">0.18</span> <span style="color: #800080;">80</span><span style="color: #000000;"> {
+        weight </span><span style="color: #800080;">1</span><span style="color: #000000;">
+        TCP_CHECK {
+            connect_timeout </span><span style="color: #800080;">10</span><span style="color: #000000;">
+            nb_get_retry </span><span style="color: #800080;">3</span><span style="color: #000000;">
+            delay_before_retry </span><span style="color: #800080;">3</span><span style="color: #000000;">
+            connect_port </span><span style="color: #800080;">80</span><span style="color: #000000;">
+        }
+    }
+
+    real_server </span><span style="color: #800080;">192.168</span>.<span style="color: #800080;">0.28</span> <span style="color: #800080;">80</span><span style="color: #000000;"> {
+        weight </span><span style="color: #800080;">1</span><span style="color: #000000;">
+        TCP_CHECK {
+            connect_timeout </span><span style="color: #800080;">10</span><span style="color: #000000;">
+            nb_get_retry </span><span style="color: #800080;">3</span><span style="color: #000000;">
+            delay_before_retry </span><span style="color: #800080;">3</span><span style="color: #000000;">
+            connect_port </span><span style="color: #800080;">80</span><span style="color: #000000;">
+        }
+    }
+}</span></span></pre>
+<div class="cnblogs_code_toolbar"><span class="cnblogs_code_copy"><a href="javascript:void(0);" onclick="copyCnblogsCode(this)" title="复制代码"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/copycode.gif" alt="复制代码"></a></span></div></div>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><strong>从节点( BACKUP )</strong><strong>配置文件</strong></span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">拷贝主节点的配置文件keepalived.conf，然后修改如下内容：</span></p>
+<div class="cnblogs_code">
+<pre><span style="font-family: &#39;courier new&#39;, courier;">state MASTER -&gt;<span style="color: #000000;"> state BACKUP
+priority </span><span style="color: #800080;">100</span> -&gt; priority <span style="color: #800080;">90</span></span></pre>
+</div>
+<p><span style="font-family: &#39;courier new&#39;, courier;"><strong>keepalived的2个节点执行如下命令，开启转发功能：</strong></span></p>
+<div class="cnblogs_code">
+<pre><span style="font-family: &#39;courier new&#39;, courier;"># <span style="color: #0000ff;">echo</span> <span style="color: #800080;">1</span> &gt; /proc/sys/net/ipv4/ip_forward</span></pre>
+</div>
+<p><span style="font-size: 16px;"><strong><span style="font-family: &#39;courier new&#39;, courier;">4、启动keepalive</span></strong></span></p>
+<div class="cnblogs_code">
+<pre><span style="color: #000000; font-family: &#39;courier new&#39;, courier;"><strong><span style="color: #888888;">先主后从分别启动keepalive</span></strong>
+service keepalived start</span></pre>
+</div>
+<p><strong><span style="font-family: &#39;courier new&#39;, courier; font-size: 16px;">5、验证结果</span></strong></p>
+<p class="a"><strong><span style="font-family: &#39;courier new&#39;, courier;">实验1</span></strong></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">手动关闭192.168.0.18节点的nginx，<strong>service</strong> nginx stop 在客户端上去测试访问 <a href="http://192.168.0.38/">http://192.168.0.38</a> 结果正常，不会出现访问18节点，一直访问的是28节点的内容。</span></p>
+<p class="a"><strong><span style="font-family: &#39;courier new&#39;, courier;">实验2</span></strong></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">手动重新开启 192.168.0.18 节点的nginx， <strong>service</strong> nginx start 在客户端上去测试访问 <a href="http://192.168.0.38/">http://192.168.0.38</a> 结果正常，按照 rr 调度算法访问18节点和28节点。</span></p>
+<p class="a"><strong><span style="font-family: &#39;courier new&#39;, courier;">实验3</span></strong></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">测试 keepalived 的HA特性，首先在master上执行命令 ip addr ，可以看到38的vip在master节点上的；这时如果在master上执行 <strong>service</strong> keepalived stop 命令，这时vip已经不再master上，在slave节点上执行 ip addr 命令可以看到 vip 已经正确漂到slave节点，这时客户端去访问 <a href="http://192.168.0.38/">http://192.168.0.38</a> 访问依然正常，验证了 keepalived的HA特性。</span></p>
+<p><span style="font-family: &#39;courier new&#39;, courier;">lvs 介绍：<a href="http://www.it165.net/admin/html/201401/2248.html">http://www.it165.net/admin/html/201401/2248.html</a></span></p>
+<p>&nbsp;</p></div><div id="MySignature" style="display: block;">作者：liwei0526vip 出处：http://www.cnblogs.com/liwei0526vip 欢迎转载，也请保留这段声明。谢谢！</div>
+<div class="clear"></div>
+<div id="blog_post_info_block">
+<div id="BlogPostCategory">分类: <a href="http://www.cnblogs.com/liwei0526vip/category/943527.html" target="_blank">肖邦Linux - 09.集群架构</a></div>
+<div id="EntryTag">标签: <a href="http://www.cnblogs.com/liwei0526vip/tag/lvs/">lvs</a></div>
+<div id="blog_post_info"><div id="green_channel">
+        <a href="javascript:void(0);" id="green_channel_digg" onclick="DiggIt(6370103,cb_blogId,1);green_channel_success(this,&#39;谢谢推荐！&#39;);">好文要顶</a>
+            <a id="green_channel_follow" onclick="follow(&#39;8d8d179f-4221-e511-b908-9dcfd8948a71&#39;);" href="javascript:void(0);">关注我</a>
+    <a id="green_channel_favorite" onclick="AddToWz(cb_entryId);return false;" href="javascript:void(0);">收藏该文</a>
+    <a id="green_channel_weibo" href="javascript:void(0);" title="分享至新浪微博" onclick="ShareToTsina()"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/icon_weibo_24.png" alt=""></a>
+    <a id="green_channel_wechat" href="javascript:void(0);" title="分享至微信" onclick="shareOnWechat()"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/wechat.png" alt=""></a>
+</div>
+<div id="author_profile">
+    <div id="author_profile_info" class="author_profile_info">
+            <a href="http://home.cnblogs.com/u/liwei0526vip/" target="_blank"><img src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/20151016135842.png" class="author_avatar" alt=""></a>
+        <div id="author_profile_detail" class="author_profile_info">
+            <a href="http://home.cnblogs.com/u/liwei0526vip/">肖邦linux</a><br>
+            <a href="http://home.cnblogs.com/u/liwei0526vip/followees">关注 - 14</a><br>
+            <a href="http://home.cnblogs.com/u/liwei0526vip/followers">粉丝 - 34</a>
+        </div>
+    </div>
+    <div class="clear"></div>
+    <div id="author_profile_honor"></div>
+    <div id="author_profile_follow">
+                <a href="javascript:void(0);" onclick="follow(&#39;8d8d179f-4221-e511-b908-9dcfd8948a71&#39;);return false;">+加关注</a>
+    </div>
+</div>
+<div id="div_digg">
+    <div class="diggit" onclick="votePost(6370103,&#39;Digg&#39;)">
+        <span class="diggnum" id="digg_count">2</span>
+    </div>
+    <div class="buryit" onclick="votePost(6370103,&#39;Bury&#39;)">
+        <span class="burynum" id="bury_count">0</span>
+    </div>
+    <div class="clear"></div>
+    <div class="diggword" id="digg_tips">
+    </div>
+</div>
+</div>
+<div class="clear"></div>
+<div id="post_next_prev"><a href="http://www.cnblogs.com/liwei0526vip/p/6386718.html" class="p_n_p_prefix">« </a> 上一篇：<a href="http://www.cnblogs.com/liwei0526vip/p/6386718.html" title="发布于2017-02-10 17:09">CentOS系统通过PXE实现批量无人值守安装</a><br><a href="http://www.cnblogs.com/liwei0526vip/p/liwei0526vip.html" class="p_n_p_prefix">» </a> 下一篇：<a href="http://www.cnblogs.com/liwei0526vip/p/liwei0526vip.html" title="发布于2017-02-12 17:28">Nginx实现集群的负载均衡配置过程详解</a><br></div>
+</div>
+
+
+	<div class="postDesc">posted on <span id="post-date">2017-02-12 14:35</span> <a href="http://www.cnblogs.com/liwei0526vip/">肖邦linux</a> 阅读(<span id="post_view_count">18805</span>) 评论(<span id="post_comment_count">5</span>)  <a href="https://i.cnblogs.com/EditPosts.aspx?postid=6370103" rel="nofollow">编辑</a> <a href="https://www.cnblogs.com/liwei0526vip/p/6370103.html#" onclick="AddToWz(6370103);return false;">收藏</a></div>
+</div>
+<script type="text/javascript">var allowComments=true,cb_blogId=233902,cb_entryId=6370103,cb_blogApp=currentBlogApp,cb_blogUserGuid='8d8d179f-4221-e511-b908-9dcfd8948a71',cb_entryCreatedDate='2017/2/12 14:35:00';loadViewCount(cb_entryId);var cb_postType=1;</script>
+
+</div><a name="!comments"></a><div id="blog-comments-placeholder"><div id="comments_pager_top"></div>
+<!--done-->
+<br>
+<b>评论:</b>
+<div class="feedbackNoItems"></div>
+	
+
+		<div class="feedbackItem">
+			<div class="feedbackListSubtitle">
+			<a href="https://www.cnblogs.com/liwei0526vip/p/6370103.html#3616812" class="layer">#1楼</a><a name="3616812" id="comment_anchor_3616812"></a>
+				 <span class="comment_date">2017-02-12 15:02</span> | <a id="a_comment_author_3616812" href="http://www.cnblogs.com/straybirds/" target="_blank">假程序猿</a> <a href="http://msg.cnblogs.com/send/%E5%81%87%E7%A8%8B%E5%BA%8F%E7%8C%BF" title="发送站内短消息" class="sendMsg2This">&nbsp;</a><br>
+				<div align="left"><div id="comment_body_3616812" class="blog_comment_body">mark</div><div class="comment_vote"><a href="javascript:void(0);" class="comment_digg" onclick="return voteComment(3616812,&#39;Digg&#39;,this)">支持(0)</a><a href="javascript:void(0);" class="comment_bury" onclick="return voteComment(3616812,&#39;Bury&#39;,this)">反对(0)</a></div><span id="comment_3616812_avatar" style="display:none;">http://pic.cnblogs.com/face/874126/20170222145207.png</span>&nbsp;&nbsp;<span class="comment_actions"></span></div>
+			</div>
+			
+			
+		</div>
+	
+		<div class="feedbackItem">
+			<div class="feedbackListSubtitle">
+			<a href="https://www.cnblogs.com/liwei0526vip/p/6370103.html#3617921" class="layer">#2楼</a><a name="3617921" id="comment_anchor_3617921"></a>
+				 <span class="comment_date">2017-02-14 10:58</span> | <a id="a_comment_author_3617921" href="http://www.cnblogs.com/jiafuwei/" target="_blank">程序人生0407</a> <a href="http://msg.cnblogs.com/send/%E7%A8%8B%E5%BA%8F%E4%BA%BA%E7%94%9F0407" title="发送站内短消息" class="sendMsg2This">&nbsp;</a><br>
+				<div align="left"><div id="comment_body_3617921" class="blog_comment_body">很详细 支持下</div><div class="comment_vote"><a href="javascript:void(0);" class="comment_digg" onclick="return voteComment(3617921,&#39;Digg&#39;,this)">支持(0)</a><a href="javascript:void(0);" class="comment_bury" onclick="return voteComment(3617921,&#39;Bury&#39;,this)">反对(0)</a></div><span id="comment_3617921_avatar" style="display:none;">http://pic.cnblogs.com/face/731200/20161121101030.png</span>&nbsp;&nbsp;<span class="comment_actions"></span></div>
+			</div>
+			
+			
+		</div>
+	
+		<div class="feedbackItem">
+			<div class="feedbackListSubtitle">
+			<a href="https://www.cnblogs.com/liwei0526vip/p/6370103.html#3712651" class="layer">#3楼</a><a name="3712651" id="comment_anchor_3712651"></a>
+				 <span class="comment_date">2017-06-12 16:39</span> | <a id="a_comment_author_3712651" href="http://home.cnblogs.com/u/1181558/" target="_blank">LINUX_CJ</a> <a href="http://msg.cnblogs.com/send/LINUX_CJ" title="发送站内短消息" class="sendMsg2This">&nbsp;</a><br>
+				<div align="left"><div id="comment_body_3712651" class="blog_comment_body">赞！细说了原理连带具体实例，非常感谢</div><div class="comment_vote"><a href="javascript:void(0);" class="comment_digg" onclick="return voteComment(3712651,&#39;Digg&#39;,this)">支持(0)</a><a href="javascript:void(0);" class="comment_bury" onclick="return voteComment(3712651,&#39;Bury&#39;,this)">反对(0)</a></div>&nbsp;&nbsp;<span class="comment_actions"></span></div>
+			</div>
+			
+			
+		</div>
+	
+		<div class="feedbackItem">
+			<div class="feedbackListSubtitle">
+			<a href="https://www.cnblogs.com/liwei0526vip/p/6370103.html#3738635" class="layer">#4楼</a><a name="3738635" id="comment_anchor_3738635"></a>
+				 <span class="comment_date">2017-07-19 10:15</span> | <a id="a_comment_author_3738635" href="http://www.cnblogs.com/ridox/" target="_blank">ridox</a> <a href="http://msg.cnblogs.com/send/ridox" title="发送站内短消息" class="sendMsg2This">&nbsp;</a><br>
+				<div align="left"><div id="comment_body_3738635" class="blog_comment_body">great</div><div class="comment_vote"><a href="javascript:void(0);" class="comment_digg" onclick="return voteComment(3738635,&#39;Digg&#39;,this)">支持(0)</a><a href="javascript:void(0);" class="comment_bury" onclick="return voteComment(3738635,&#39;Bury&#39;,this)">反对(0)</a></div><span id="comment_3738635_avatar" style="display:none;">http://pic.cnblogs.com/face/548617/20130718105600.png</span>&nbsp;&nbsp;<span class="comment_actions"></span></div>
+			</div>
+			
+			
+		</div>
+	
+		<div class="feedbackItem">
+			<div class="feedbackListSubtitle">
+			<a href="https://www.cnblogs.com/liwei0526vip/p/6370103.html#3782247" class="layer">#5楼</a><a name="3782247" id="comment_anchor_3782247"></a><span id="comment-maxId" style="display:none;">3782247</span><span id="comment-maxDate" style="display:none;">2017/9/12 17:15:25</span>
+				 <span class="comment_date">2017-09-12 17:15</span> | <a id="a_comment_author_3782247" href="http://www.cnblogs.com/joeymary/" target="_blank">大兄弟竹子</a> <a href="http://msg.cnblogs.com/send/%E5%A4%A7%E5%85%84%E5%BC%9F%E7%AB%B9%E5%AD%90" title="发送站内短消息" class="sendMsg2This">&nbsp;</a><br>
+				<div align="left"><div id="comment_body_3782247" class="blog_comment_body">有点详细的，大致的看了遍，有动力了试试</div><div class="comment_vote"><a href="javascript:void(0);" class="comment_digg" onclick="return voteComment(3782247,&#39;Digg&#39;,this)">支持(0)</a><a href="javascript:void(0);" class="comment_bury" onclick="return voteComment(3782247,&#39;Bury&#39;,this)">反对(0)</a></div><span id="comment_3782247_avatar" style="display:none;">http://pic.cnblogs.com/face/776708/20170421093149.png</span>&nbsp;&nbsp;<span class="comment_actions"></span></div>
+			</div>
+			
+			
+		</div>
+	
+
+
+
+<div id="comments_pager_bottom"></div></div><script type="text/javascript">var commentManager = new blogCommentManager();commentManager.renderComments(0);</script>
+<div id="comment_form" class="commentform">
+<a name="commentform"></a>
+<div id="divCommentShow"></div>
+<div id="comment_nav"><span id="span_refresh_tips"></span><a href="javascript:void(0);" onclick="return RefreshCommentList();" id="lnk_RefreshComments" runat="server" clientidmode="Static">刷新评论</a><a href="https://www.cnblogs.com/liwei0526vip/p/6370103.html#" onclick="return RefreshPage();">刷新页面</a><a href="https://www.cnblogs.com/liwei0526vip/p/6370103.html#top">返回顶部</a></div>
+<div id="comment_form_container"><div class="login_tips">注册用户登录后才能发表评论，请 <a rel="nofollow" href="javascript:void(0);" class="underline" onclick="return login(&#39;commentform&#39;);">登录</a> 或 <a rel="nofollow" href="javascript:void(0);" class="underline" onclick="return register();">注册</a>，<a href="http://www.cnblogs.com/">访问</a>网站首页。</div></div>
+<div class="ad_text_commentbox" id="ad_text_under_commentbox"></div>
+<div id="ad_t2"></div>
+<div id="opt_under_post"></div>
+<div id="cnblogs_c1" class="c_ad_block"></div>
+<div id="under_post_news"><div class="itnews c_ad_block"><b>最新IT新闻</b>:<br> ·  <a href="http://news.cnblogs.com/n/582523/" target="_blank">FDA批准首例数字药物</a><br> ·  <a href="http://news.cnblogs.com/n/582522/" target="_blank">iPhone X：设计师从它身上能学到什么呢</a><br> ·  <a href="http://news.cnblogs.com/n/582521/" target="_blank">文章： 大型机程序员正在退休，我们是否会担心？</a><br> ·  <a href="http://news.cnblogs.com/n/582520/" target="_blank">光环新网20亿元收购亚马逊中国云，或为解决安全合规问题</a><br> ·  <a href="http://news.cnblogs.com/n/582518/" target="_blank">Apple Watch可检测睡眠呼吸暂停/高血压</a><br>» <a href="http://news.cnblogs.com/" title="IT新闻" target="_blank">更多新闻...</a></div></div>
+<div id="cnblogs_c2" class="c_ad_block"></div>
+<div id="under_post_kb"><div class="itnews c_ad_block" id="kb_block"><b>最新知识库文章</b>:<br><div id="kb_recent"> ·  <a href="http://kb.cnblogs.com/page/563790/" target="_blank">关于编程，你的练习是不是有效的？</a><br> ·  <a href="http://kb.cnblogs.com/page/581467/" target="_blank">改善程序员生活质量的 3+10 习惯</a><br> ·  <a href="http://kb.cnblogs.com/page/568841/" target="_blank">NASA的10条代码编写原则</a><br> ·  <a href="http://kb.cnblogs.com/page/578502/" target="_blank">为什么你参加了那么多培训，却依然表现平平？</a><br> ·  <a href="http://kb.cnblogs.com/page/579832/" target="_blank">写给初学前端工程师的一封信</a><br></div>» <a href="http://kb.cnblogs.com/" target="_blank">更多知识库文章...</a></div></div>
+<div id="HistoryToday" class="c_ad_block"></div>
+<script type="text/javascript">
+    fixPostBody();
+    setTimeout(function () { incrementViewCount(cb_entryId); }, 50);
+    deliverAdT2();
+    deliverAdC1();
+    deliverAdC2();    
+    loadNewsAndKb();
+    loadBlogSignature();
+    LoadPostInfoBlock(cb_blogId, cb_entryId, cb_blogApp, cb_blogUserGuid);
+    GetPrevNextPost(cb_entryId, cb_blogId, cb_entryCreatedDate, cb_postType);
+    loadOptUnderPost();
+    GetHistoryToday(cb_blogId, cb_blogApp, cb_entryCreatedDate);   
+</script>
+</div>
+
+
+</div>
+<div id="leftcontent">
+	
+		<div id="leftcontentcontainer">
+			
+<!--done-->
+<div class="newsItem">
+	<div id="blog-news"><div id="profile_block">昵称：<a href="http://home.cnblogs.com/u/liwei0526vip/">肖邦linux</a><br>园龄：<a href="http://home.cnblogs.com/u/liwei0526vip/" title="入园时间：2015-07-03">2年4个月</a><br>粉丝：<a href="http://home.cnblogs.com/u/liwei0526vip/followers/">34</a><br>关注：<a href="http://home.cnblogs.com/u/liwei0526vip/followees/">14</a><div id="p_b_follow"><a href="javascript:void(0);" onclick="follow(&#39;8d8d179f-4221-e511-b908-9dcfd8948a71&#39;)">+加关注</a></div></div></div><script type="text/javascript">loadBlogNews();</script>
+</div>
+
+			<div id="blog-calendar" style=""><table id="blogCalendar" class="Cal" cellspacing="0" cellpadding="0" title="日历">
+	<tbody><tr><td colspan="7"><table class="CalTitle" cellspacing="0">
+		<tbody><tr><td class="CalNextPrev"><a href="javascript:void(0);" onclick="loadBlogCalendar(&#39;2017/10/01&#39;);return false;">&lt;</a></td><td align="center">2017年11月</td><td class="CalNextPrev" align="right"><a href="javascript:void(0);" onclick="loadBlogCalendar(&#39;2017/12/01&#39;);return false;">&gt;</a></td></tr>
+	</tbody></table></td></tr><tr><th class="CalDayHeader" align="center" abbr="日" scope="col">日</th><th class="CalDayHeader" align="center" abbr="一" scope="col">一</th><th class="CalDayHeader" align="center" abbr="二" scope="col">二</th><th class="CalDayHeader" align="center" abbr="三" scope="col">三</th><th class="CalDayHeader" align="center" abbr="四" scope="col">四</th><th class="CalDayHeader" align="center" abbr="五" scope="col">五</th><th class="CalDayHeader" align="center" abbr="六" scope="col">六</th></tr><tr><td class="CalOtherMonthDay" align="center">29</td><td class="CalOtherMonthDay" align="center">30</td><td class="CalOtherMonthDay" align="center">31</td><td align="center">1</td><td align="center">2</td><td align="center">3</td><td class="CalWeekendDay" align="center">4</td></tr><tr><td class="CalWeekendDay" align="center">5</td><td align="center">6</td><td align="center">7</td><td align="center">8</td><td align="center">9</td><td align="center">10</td><td class="CalWeekendDay" align="center">11</td></tr><tr><td class="CalWeekendDay" align="center">12</td><td align="center">13</td><td class="CalTodayDay" align="center">14</td><td align="center">15</td><td align="center">16</td><td align="center">17</td><td class="CalWeekendDay" align="center">18</td></tr><tr><td class="CalWeekendDay" align="center">19</td><td align="center">20</td><td align="center">21</td><td align="center">22</td><td align="center">23</td><td align="center">24</td><td class="CalWeekendDay" align="center">25</td></tr><tr><td class="CalWeekendDay" align="center">26</td><td align="center">27</td><td align="center">28</td><td align="center">29</td><td align="center">30</td><td class="CalOtherMonthDay" align="center">1</td><td class="CalOtherMonthDay" align="center">2</td></tr><tr><td class="CalOtherMonthDay" align="center">3</td><td class="CalOtherMonthDay" align="center">4</td><td class="CalOtherMonthDay" align="center">5</td><td class="CalOtherMonthDay" align="center">6</td><td class="CalOtherMonthDay" align="center">7</td><td class="CalOtherMonthDay" align="center">8</td><td class="CalOtherMonthDay" align="center">9</td></tr>
+</tbody></table></div><script type="text/javascript">loadBlogDefaultCalendar();</script><br>
+			<div id="blog-sidecolumn"><div id="sidebar_search" class="sidebar-block"></div><div id="sidebar_toptags" class="sidebar-block">
+<h3 class="catListTitle">我的标签</h3>
+<div id="MyTag">
+<ul>
+<li><a href="http://www.cnblogs.com/liwei0526vip/tag/mysql/">mysql</a>(10)</li><li><a href="http://www.cnblogs.com/liwei0526vip/tag/linux/">linux</a>(4)</li><li><a href="http://www.cnblogs.com/liwei0526vip/tag/python/">python</a>(3)</li><li><a href="http://www.cnblogs.com/liwei0526vip/tag/nginx/">nginx</a>(2)</li><li><a href="http://www.cnblogs.com/liwei0526vip/tag/php/">php</a>(2)</li><li><a href="http://www.cnblogs.com/liwei0526vip/tag/apache/">apache</a>(2)</li><li><a href="http://www.cnblogs.com/liwei0526vip/tag/expect/">expect</a>(1)</li><li><a href="http://www.cnblogs.com/liwei0526vip/tag/git/">git</a>(1)</li><li><a href="http://www.cnblogs.com/liwei0526vip/tag/heartbeat/">heartbeat</a>(1)</li><li><a href="http://www.cnblogs.com/liwei0526vip/tag/iso/">iso</a>(1)</li><li><a href="http://www.cnblogs.com/liwei0526vip/tag/">更多</a></li>
+</ul>
+</div></div><div id="sidebar_categories">
+		<h3 class="catListTitle">随笔分类<span style="font-size:11px;font-weight:normal">(84)</span></h3>
+		
+				<ul class="catList">
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_0" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/935555.html">肖邦Linux - 01.Apache(1)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_1" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/772786.html">肖邦Linux - 02.Python(11)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_2" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/707489.html">肖邦Linux - 03.Linux(17)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_3" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/848315.html">肖邦Linux - 04.Shell(6)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_4" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/707606.html">肖邦Linux - 05.MySQL(10)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_5" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/707605.html">肖邦Linux - 06.C语言(6)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_6" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/794151.html">肖邦Linux - 07.Linux命令(1)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_7" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/931475.html">肖邦Linux - 08.服务搭建(2)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_8" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/943527.html">肖邦Linux - 09.集群架构(4)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_9" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/939696.html">肖邦Linux - 10.系统监控(1)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_10" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/925914.html">肖邦Linux - 11.虚拟化(1)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_11" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/924082.html">肖邦Linux - 12.开发工具(5)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_12" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/759488.html">肖邦Linux - 13.存储/网络(5)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_13" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/748855.html">肖邦Linux - 14.iNeedle(7)</a></li>
+			
+				<li class="catListItem"> <a id="CatList_LinkList_0_Link_14" class="listitem" href="http://www.cnblogs.com/liwei0526vip/category/745760.html">肖邦Linux - 15.杂七杂八(7)</a></li>
+			
+				</ul>
+			
+	
+		<h3 class="catListTitle">友情链接</h3>
+		
+				<ul class="catList">
+			
+				<li class="catListItem"> <a id="CatList_LinkList_1_Link_0" class="listitem" href="http://www.linuxblogs.cn/" rel="nofollow" target="_blank">Linux的成长之路</a></li>
+			
+				</ul>
+			
+	
+</div><div id="sidebar_scorerank" class="sidebar-block">
+<h3>积分与排名</h3>
+<ul>
+	<li>
+		积分 -
+		47286
+	</li><li>
+		排名 -
+		7142
+	</li>
+</ul>
+</div><div id="sidebar_recentcomments" class="sidebar-block"><div id="recent_comments_wrap">
+<h3 class="catListTitle">最新评论</h3>
+<div class="RecentComment" id="RecentComments">
+	<div id="RecentCommentsBlock"><ul>
+        <li class="recent_comment_title"><a href="http://www.cnblogs.com/liwei0526vip/p/6370103.html#3782247">1. Re:使用LVS实现负载均衡原理及安装配置详解</a></li>
+        <li class="recent_comment_body">有点详细的，大致的看了遍，有动力了试试</li>
+        <li class="recent_comment_author">--大兄弟竹子</li>
+        <li class="recent_comment_title"><a href="http://www.cnblogs.com/liwei0526vip/p/6386034.html#3771471">2. Re:CentOS 7 网卡命名修改为eth0格式</a></li>
+        <li class="recent_comment_body">学习了 赞！</li>
+        <li class="recent_comment_author">--一粒飞鸿</li>
+        <li class="recent_comment_title"><a href="http://www.cnblogs.com/liwei0526vip/p/6403781.html#3755634">3. Re:Apache常见功能实战详解</a></li>
+        <li class="recent_comment_body">mack</li>
+        <li class="recent_comment_author">--大田走井的阿斌</li>
+        <li class="recent_comment_title"><a href="http://www.cnblogs.com/liwei0526vip/p/6391833.html#3753634">4. Re:使用HeartBeat实现高可用HA的配置过程详解</a></li>
+        <li class="recent_comment_body">学习了！</li>
+        <li class="recent_comment_author">--大田走井的阿斌</li>
+        <li class="recent_comment_title"><a href="http://www.cnblogs.com/liwei0526vip/p/6370103.html#3738635">5. Re:使用LVS实现负载均衡原理及安装配置详解</a></li>
+        <li class="recent_comment_body">great</li>
+        <li class="recent_comment_author">--ridox</li>
+</ul>
+</div>
+</div>
+</div></div><div id="sidebar_topviewedposts" class="sidebar-block"><div id="topview_posts_wrap">
+<h3 class="catListTitle">阅读排行榜</h3>
+<div class="RecentComment" id="TopViewPosts"> 
+	<div id="TopViewPostsBlock"><ul><li><a href="http://www.cnblogs.com/liwei0526vip/p/6370103.html">1. 使用LVS实现负载均衡原理及安装配置详解(18804)</a></li><li><a href="http://www.cnblogs.com/liwei0526vip/p/6386034.html">2. CentOS 7 网卡命名修改为eth0格式(7272)</a></li><li><a href="http://www.cnblogs.com/liwei0526vip/p/4925281.html">3. 安装DELL R430服务器的过程记录(4782)</a></li><li><a href="http://www.cnblogs.com/liwei0526vip/p/6391833.html">4. 使用HeartBeat实现高可用HA的配置过程详解(3147)</a></li><li><a href="http://www.cnblogs.com/liwei0526vip/p/5734966.html">5. CentOS7安装图形界面和修改运行级别(2524)</a></li></ul></div>
+</div>
+</div></div><div id="sidebar_topcommentedposts" class="sidebar-block"><div id="topfeedback_posts_wrap">
+<h3 class="catListTitle">评论排行榜</h3>
+<div class="RecentComment" id="TopCommentsPosts">
+	<div id="TopFeedbackPostsBlock"><ul><li><a href="http://www.cnblogs.com/liwei0526vip/p/6476912.html">1. 网站Web业务架构从小到大演变(6)</a></li><li><a href="http://www.cnblogs.com/liwei0526vip/p/6409218.html">2. 数据库MySQL调优实战经验总结(6)</a></li><li><a href="http://www.cnblogs.com/liwei0526vip/p/6370103.html">3. 使用LVS实现负载均衡原理及安装配置详解(5)</a></li><li><a href="http://www.cnblogs.com/liwei0526vip/p/6424605.html">4. MySQL架构由小变大的演变过程(4)</a></li><li><a href="http://www.cnblogs.com/liwei0526vip/p/6403781.html">5. Apache常见功能实战详解(2)</a></li></ul></div>
+</div></div></div><div id="sidebar_topdiggedposts" class="sidebar-block"><div id="topdigg_posts_wrap">
+<h3 class="catListTitle">推荐排行榜</h3>
+<div class="RecentComment">
+	<div id="TopDiggPostsBlock"><ul><li><a href="http://www.cnblogs.com/liwei0526vip/p/6409218.html">1. 数据库MySQL调优实战经验总结(17)</a></li><li><a href="http://www.cnblogs.com/liwei0526vip/p/6424605.html">2. MySQL架构由小变大的演变过程(6)</a></li><li><a href="http://www.cnblogs.com/liwei0526vip/p/6476912.html">3. 网站Web业务架构从小到大演变(2)</a></li><li><a href="http://www.cnblogs.com/liwei0526vip/p/6370103.html">4. 使用LVS实现负载均衡原理及安装配置详解(2)</a></li><li><a href="http://www.cnblogs.com/liwei0526vip/p/6306762.html">5. Nagios 系统监控基本安装配置过程详解(2)</a></li></ul></div>
+</div></div></div></div><script type="text/javascript">loadBlogSideColumn();</script></div>
+	
+</div>
+
+<!--done-->
+<div class="footer">
+	Powered by: <a href="http://www.cnblogs.com/">博客园</a>	模板提供：<a href="http://blog.hjenglish.com/">沪江博客</a>
+	Copyright ©2017 肖邦linux
+</div>
+
+
+
+<!--PageEndHtml Block Begin-->
+<script type="text/javascript">var cnzz_protocol = (("https:" == document.location.protocol) ? " https://" : " http://");document.write(unescape("%3Cspan id='cnzz_stat_icon_1261099130'%3E%3C/span%3E%3Cscript src='" + cnzz_protocol + "s11.cnzz.com/z_stat.php%3Fid%3D1261099130%26show%3Dpic' type='text/javascript'%3E%3C/script%3E"));</script><span id="cnzz_stat_icon_1261099130"><a href="http://www.cnzz.com/stat/website.php?web_id=1261099130" target="_blank" title="站长统计"><img border="0" hspace="0" vspace="0" src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/pic.gif"></a></span><script src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/z_stat.php" type="text/javascript"></script><script src="./使用LVS实现负载均衡原理及安装配置详解 - 肖邦linux - 博客园_files/core.php" charset="utf-8" type="text/javascript"></script>
+<!--PageEndHtml Block End-->
+
+
+<div class="sideBar" id="sideBar"><div id="sideBarTab"><h2>目录导航</h2></div><div id="sideBarContents" style="display: none;"><dl><dt name="0">一、负载均衡LVS基本介绍</dt><dt name="1">二、LVS的基本工作原理</dt><dt name="2">三、LVS的组成</dt><dt name="3">四、LVS相关术语</dt><dt name="4">五、LVS/NAT原理和特点</dt><dt name="5">六、LVS/DR原理和特点</dt><dt name="6">七、LVS/Tun原理和特点</dt><dt name="7">八、LVS的八种调度算法</dt><dt name="8">九、实践LVS的NAT模式</dt><dt name="9">十、实践LVS的DR模式</dt><dt name="10">十一、LVS结合keepalive</dt></dl></div></div></body></html>
