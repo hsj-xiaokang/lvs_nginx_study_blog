@@ -1,4 +1,6 @@
-﻿关于LVS+Nginx为什么会被同时使用的思考  http://blog.csdn.net/BuquTianya/article/details/52076153
+经典方式介绍【使用LVS实现负载均衡原理及安装配置详解】：https://www.cnblogs.com/liwei0526vip/p/6370103.html
+
+关于LVS+Nginx为什么会被同时使用的思考  http://blog.csdn.net/BuquTianya/article/details/52076153
 
 最初的理解
 
